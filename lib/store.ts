@@ -39,7 +39,8 @@ type Mem = { [K in TableName]: TableMap[K][] };
 
 // Until a database is connected, everything is kept in memory and mirrored to a
 // local file so your loads, carriers, customers and history survive a restart.
-const DATA_FILE = path.join(process.cwd(), ".data", "store.json");
+// DATA_DIR lets a host keep the file outside the app folder, so a redeploy never wipes it.
+const DATA_FILE = path.join(process.env.DATA_DIR || path.join(process.cwd(), ".data"), "store.json");
 const EMPTY = (): Mem => ({ loads: [], carriers: [], customers: [], campaigns: [], calls: [], offers: [], events: [], documents: [] });
 
 function loadFromDisk(): Mem | null {
