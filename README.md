@@ -26,8 +26,8 @@ restarts. Delete that file to start over with the sample data.
 
 | Screen | What you do there |
 |---|---|
-| **Command Center** | Drop a rate con / load sheet (PDF, photo, screenshot). Check what was read, set *start offer* (low), *most you'll pay* (high) and how hard to negotiate. Press **Find a truck**, pick carriers and how many calls at once. Watch the live map. |
-| **Customers** | Drop customer rate confirmations — it saves the contact's name, email, phone, what the job was and what it paid, then ranks who is due to ship again. Tick customers → **Call for loads**. Loads they give you land on the Command Center as drafts. |
+| **Command Center** | Drop a rate con / load sheet (PDF, photo, screenshot). Check what was read, set *start offer* (low), *most you'll pay* (high) and how hard to negotiate. Press **Find a truck**, pick carriers and how to reach them. Watch the live map. |
+| **Customers** | Drop customer rate confirmations — it saves the contact's name, email, phone, what the job was and what it paid, then ranks who is due to ship again. Tick customers → **Ask for loads**. Loads they give you land on the Command Center as drafts. |
 | **Carriers** | Drop your Excel/CSV carrier list (any column names). Mark anyone "Do not call". |
 | **History** | Every call and email: result, each price offered in the negotiation, transcript and summary. |
 | **Go Live** | Checklist of which keys are set and what each one switches on. |
@@ -62,6 +62,19 @@ Do it in this order (the **Go Live** screen tracks your progress):
 7. **Resend** — `RESEND_API_KEY`, `EMAIL_FROM` for carrier emails with private bid links.
 
 Each group switches on independently. Anything not configured keeps running in practice mode.
+
+## Email first, phone second
+
+Every outreach (carriers and customers) lets you choose how to reach people:
+
+- **Email first, then call** (default) — everyone is emailed now. After the wait you pick
+  (5 minutes to 2 hours), the phones start, and only for people who haven't answered. A
+  **Call now** button skips the wait.
+- **Email only**, **Call only**, or **Email + call together**.
+
+Carrier emails carry a private link to send a rate; customer emails carry one-tap answers
+(*send a load*, *nothing right now*, *call me*). An email yes books the load exactly like a
+phone yes, and anyone who answers by email is not phoned.
 
 ## How "first come, first served" works
 

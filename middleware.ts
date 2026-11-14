@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Reachable without logging in: voice-agent tools and webhooks (they carry their own secrets),
 // carrier bid links, and the audio clip Twilio plays.
-const PUBLIC = [/^\/api\/tools\//, /^\/api\/webhooks\//, /^\/api\/bid\//, /^\/bid\//, /^\/api\/audio\//, /^\/login$/, /^\/api\/login$/];
+const PUBLIC = [/^\/api\/tools\//, /^\/api\/webhooks\//, /^\/api\/bid\//, /^\/bid\//, /^\/api\/reply\//, /^\/reply\//, /^\/api\/audio\//, /^\/login$/, /^\/api\/login$/];
 
 async function sha256(s: string) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));

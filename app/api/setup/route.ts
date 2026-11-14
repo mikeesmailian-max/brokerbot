@@ -43,7 +43,7 @@ export async function GET() {
         ["TWILIO_ACCOUNT_SID", "Account SID"],
         ["TWILIO_AUTH_TOKEN", "Auth Token"],
       ]),
-      group("email", "7 · Carrier emails", "Sends the load by email with a private bid link.", "resend.com → API Keys, and verify your sending domain.", [
+      group("email", "7 · Email", "Emails carriers the load with a private bid link, and emails customers a check-in with one-tap answers. Email goes first; phone is the follow-up.", "resend.com → API Keys, and verify your sending domain.", [
         ["RESEND_API_KEY", "Resend API key"],
         ["EMAIL_FROM", "e.g. Dispatch <dispatch@yourcompany.com>"],
       ]),

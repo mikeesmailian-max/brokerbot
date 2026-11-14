@@ -6,7 +6,7 @@ import { Icon } from "@/components/Icon";
 import { Ecosystem, type EcoNode } from "@/components/Ecosystem";
 import { LoadEditor } from "@/components/LoadEditor";
 import { Launcher } from "@/components/Launcher";
-import { api, clock, mergeByCompany, nodeLabel, toneOf, useLive, useTick } from "@/lib/client";
+import { api, clock, countdown, mergeByCompany, nodeLabel, toneOf, useLive, useTick } from "@/lib/client";
 import { initials, laneOf, money, place, shortDate, timeAgo } from "@/lib/format";
 import { ACTIVE_CALL, type Load } from "@/lib/types";
 
@@ -48,6 +48,13 @@ export default function CommandCenter() {
   const winner = loadCalls.find((c) => c.outcome === "booked");
   const heard = loadCalls.filter((c) => c.channel === "call" && c.outcome === "covered_elsewhere" && c.stage?.startsWith("Told")).length;
   const nodes: EcoNode[] = mergeByCompany(loadCalls).map(({ call: c, emailed }) => ({ id: c.id, name: c.company_name, tone: toneOf(c), label: nodeLabel(c), emailed }));
+  const waiting = Boolean(campaign && !campaign.calls_started && campaign.calls_start_at);
+  const emailsOut = loadCalls.filter((c) => c.channel === "email" && c.status === "sent").length;
+  const callNow = async () => {
+    if (!campaign) return;
+    try { await api(`/api/campaigns/${campaign.id}/call-now`, { method: "POST" }); await refresh(); }
+    catch (e) { toast.show(e instanceof Error ? e.message : String(e), "bad"); }
+  };
   const liveCalls = (state?.calls ?? []).filter((c) => c.channel === "call" && ACTIVE_CALL.includes(c.status));
 
   const onDoc = useCallback(async (file: File) => {
@@ -118,7 +125,7 @@ export default function CommandCenter() {
               <div className="mission-head">
                 <div className="grow">
                   <div className="row wrap" style={{ gap: 8, marginBottom: 6 }}>
-                    <span className={"chip " + STATUS_CHIP[load.status]?.cls}>{STATUS_CHIP[load.status]?.label ?? load.status}</span>
+                    <span className={"chip " + (waiting ? "teal" : STATUS_CHIP[load.status]?.cls)}>{waiting ? "Emailed — waiting" : STATUS_CHIP[load.status]?.label ?? load.status}</span>
                     <span className="small muted">{load.ref}{load.customer_name ? ` · ${load.customer_name}` : ""}</span>
                   </div>
                   <div className="mission-lane">{place(load.origin_city, load.origin_state)} <span className="arrow">→</span> {place(load.dest_city, load.dest_state)}</div>
@@ -131,7 +138,7 @@ export default function CommandCenter() {
                   ) : load.status === "draft" ? (
                     <button className="btn primary big" onClick={() => setEditing({ load })}>Check &amp; confirm</button>
                   ) : load.status === "open" ? (
-                    <button className="btn go big" onClick={() => (load.target_rate && load.max_rate ? setLaunching(load) : setEditing({ load }))}><Icon name="phone" size={18} />Find a truck</button>
+                    <button className="btn go big" onClick={() => (load.target_rate && load.max_rate ? setLaunching(load) : setEditing({ load }))}>Find a truck</button>
                   ) : null}
                 </div>
               </div>
@@ -161,18 +168,29 @@ export default function CommandCenter() {
               {load.status === "covered" && !winner && (
                 <div className="banner-win"><span className="badge-ico"><Icon name="check" size={20} stroke={3} /></span><div>Covered by <b>{load.covered_by_name}</b> at <b>{money(load.covered_rate)}</b>.</div></div>
               )}
+              {waiting && campaign && (
+                <div className="banner-wait">
+                  <div className="grow">
+                    <b>{emailsOut} email{emailsOut === 1 ? " is" : "s are"} out.</b> If nobody takes it, I start calling in <span className="count">{countdown(campaign.calls_start_at)}</span>.
+                  </div>
+                  <button className="btn sm primary" onClick={callNow}><Icon name="phone" size={14} />Call now</button>
+                </div>
+              )}
+              {!campaign && load.status === "open" && emailsOut > 0 && (
+                <div className="banner-wait"><div className="grow"><b>{emailsOut} email{emailsOut === 1 ? " is" : "s are"} out.</b> The first carrier to say yes books it. You can also start calling any time.</div></div>
+              )}
               {load.status === "draft" && <div className="banner-note">I read this from your document. Give it a quick check and set your low and high numbers — then I can start calling.</div>}
 
               <Ecosystem
                 hub={{
                   line1: load.origin_city ?? "Pickup",
                   line2: "→ " + (load.dest_city ?? "Delivery"),
-                  sub: load.status === "covered" ? "COVERED" : campaign ? "SEARCHING…" : "READY",
+                  sub: load.status === "covered" ? "COVERED" : waiting ? "WAITING ON EMAIL" : campaign ? "SEARCHING…" : emailsOut ? "EMAILS OUT" : "READY",
                   done: load.status === "covered",
                   busy: Boolean(campaign),
                 }}
                 nodes={nodes}
-                idle={load.status === "open" ? "Press “Find a truck” and carriers will appear here as I call them." : ""}
+                idle={load.status === "open" ? "Press “Find a truck” and carriers will appear here as I reach out." : ""}
               />
             </>
           )}
@@ -241,7 +259,7 @@ export default function CommandCenter() {
           load={launching}
           mode={state.mode}
           onClose={() => setLaunching(null)}
-          onStarted={async () => { setLaunching(null); await refresh(); toast.show("Calls are going out. Watch the map.", "good"); }}
+          onStarted={async (how) => { setLaunching(null); await refresh(); toast.show(how === "call_only" ? "Calls are going out. Watch the map." : how === "both" ? "Emails and calls are going out." : "Emails are going out.", "good"); }}
         />
       )}
       {toast.node}

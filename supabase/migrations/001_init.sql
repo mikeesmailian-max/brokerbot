@@ -73,6 +73,9 @@ create table if not exists campaigns (
   status text not null default 'running' check (status in ('running','completed','stopped')),
   concurrency integer not null default 5,
   also_email boolean not null default false,
+  mode text not null default 'call_only' check (mode in ('email_first','email_only','call_only','both')),
+  calls_start_at timestamptz,          -- email_first: when the phone follow-up begins
+  calls_started boolean not null default true,
   created_at timestamptz not null default now(),
   ended_at timestamptz
 );

@@ -1,6 +1,6 @@
 import { cfg, emailIsReal } from "./config";
 import { laneOf, money } from "./format";
-import type { Load } from "./types";
+import type { Customer, CustomerHistory, Load } from "./types";
 
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!emailIsReal()) return false; // demo: nothing leaves the building
@@ -40,5 +40,26 @@ export function coveredEmail(load: Load, contact: string | null) {
   return {
     subject: `Covered: ${laneOf(load)}`,
     html: `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1c2333"><p>Hi ${esc((contact || "there").split(" ")[0])},</p><p>Looks like we found capacity on ${esc(laneOf(load))}, so it's no longer needed. Thank you — more loads coming your way soon.</p><p>${esc(c.brokerName)}, ${esc(c.companyName)}</p></div>`,
+  };
+}
+
+/** A short, personal check-in to a customer, shaped by what they usually ship. */
+export function customerCheckInEmail(customer: Customer, history: CustomerHistory, replyUrl: string) {
+  const c = cfg();
+  const lane = history.top_lanes[0]?.lane.replace(" to ", " → ");
+  const ask = lane
+    ? `Do you have anything moving on ${esc(lane)} — or anywhere else — this week or next?`
+    : "Do you have any freight we can help you move this week or next?";
+  const btn = (href: string, label: string, primary: boolean) =>
+    `<a href="${esc(href)}" style="display:inline-block;margin:0 8px 8px 0;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600;${primary ? "background:#0071e3;color:#fff" : "background:#eef0f4;color:#1c1c1e"}">${label}</a>`;
+  return {
+    subject: lane ? `Anything moving on ${lane} this week?` : `Any freight we can help with this week?`,
+    html: `<div style="font-family:-apple-system,system-ui,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1c1c1e;max-width:560px">
+<p>Hi ${esc((customer.contact_name || "there").split(" ")[0])},</p>
+<p>${esc(c.brokerName)} at ${esc(c.companyName)} here, checking in. ${ask}</p>
+<p style="margin:20px 0 12px">${btn(replyUrl + "?a=load", "Yes — here are the details", true)}${btn(replyUrl + "?a=none", "Nothing right now", false)}${btn(replyUrl + "?a=call", "Call me", false)}</p>
+<p style="color:#6e6e73">Or just reply to this email${c.callbackPhone ? " or call " + esc(c.callbackPhone) : ""}. Thanks for the business.</p>
+<p>${esc(c.brokerName)}<br>${esc(c.companyName)}</p>
+</div>`,
   };
 }

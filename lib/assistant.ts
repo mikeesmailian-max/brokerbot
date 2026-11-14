@@ -50,13 +50,20 @@ async function customersDue(limit: number) {
     .map(({ c, h }) => ({ id: c.id, name: c.name, contact: c.contact_name, has_phone: Boolean(c.phone), chance_of_freight: h.due_score, loads: h.loads, total_paid: h.revenue, days_since_last: h.days_since_last, usual_gap_days: h.avg_gap_days, top_lane: h.top_lanes[0]?.lane ?? null }));
 }
 
+const METHOD_TEXT: Record<string, (n: number, who: string, wait: number) => string> = {
+  email_first: (n, who, wait) => `Email ${n} ${who}${n === 1 ? "" : "s"} now; phone whoever hasn't answered after ${wait} minutes.`,
+  email_only: (n, who) => `Email ${n} ${who}${n === 1 ? "" : "s"} and wait for replies.`,
+  call_only: (n, who) => `Call ${n} ${who}${n === 1 ? "" : "s"}.`,
+  both: (n, who) => `Email and call ${n} ${who}${n === 1 ? "" : "s"} at the same time.`,
+};
+
 const SYSTEM = () => `You are the dispatch assistant inside Freight Command, working for ${cfg().brokerName} at ${cfg().companyName}, a freight brokerage.
 
 How to talk: like a sharp, friendly operations chief. Numbers first, one to three short sentences. Your replies may be read aloud, so write plain spoken sentences — no markdown, no bullet lists, no emoji. Say dollar amounts naturally.
 
 What you can do: look up the live board, customers and their shipping history, carriers, and past calls with the tools. Always check with a tool before stating a fact about loads, calls or money — never guess.
 
-What needs the user's click: you cannot place calls or change rates yourself. To start calling carriers, calling customers, or change a load's rates, use the matching propose tool. It puts a Confirm button in front of the user. Then say in one sentence what will happen when they press it. Never say something has started — only that it is ready to confirm.
+What needs the user's click: you cannot send emails, place calls or change rates yourself. To reach out to carriers or customers, or change a load's rates, use the matching propose tool. Email goes first by default, with phone as the follow-up for anyone who doesn't answer; use a different method only if the user asks for it. It puts a Confirm button in front of the user. Then say in one sentence what will happen when they press it. Never say something has started — only that it is ready to confirm.
 
 If a load has no start offer or max pay, ask for both numbers before proposing a truck search. If the request is unclear (for example which load), ask one short question.`;
 
@@ -103,12 +110,13 @@ export async function chat(history: ChatTurn[]): Promise<{ reply: string; action
     }),
     betaZodTool({
       name: "propose_truck_search",
-      description: "Prepare a truck search for a load: call the best-fit carriers at the same time, first yes wins, everyone else is released. Shows the user a Confirm button — nothing is dialed until they press it.",
+      description: "Prepare a truck search for a load: email and/or call the best-fit carriers, first yes wins, everyone else is released. Default is email first, phone as the follow-up. Shows the user a Confirm button — nothing is sent or dialed until they press it.",
       inputSchema: z.object({
         load_ref: z.string(),
         carriers_to_call: z.number().int().min(1).max(100).describe("How many of the best-fit carriers to contact"),
         calls_at_once: z.number().int().min(1).max(20),
-        also_email: z.boolean(),
+        method: z.enum(["email_first", "email_only", "call_only", "both"]).describe("email_first (default): email now, phone only if nobody answers. both: email and phone together."),
+        wait_minutes: z.number().int().min(0).max(240).optional().describe("email_first only: how long to give email before phoning. Default 15."),
       }),
       run: async (i) => {
         const load = findLoad(await openLoads(), i.load_ref);
@@ -123,29 +131,31 @@ export async function chat(history: ChatTurn[]): Promise<{ reply: string; action
         actions.push({
           id: crypto.randomUUID(),
           label: `Find a truck: ${laneOf(load)}`,
-          detail: `Call ${pick.length} carriers, ${i.calls_at_once} at a time${i.also_email ? ", and email them" : ""}. Open at ${money(load.target_rate)}, up to ${money(load.max_rate)}.`,
-          request: { path: "/api/campaigns", method: "POST", json: { type: "capacity", loadId: load.id, carrierIds: pick.map((r) => r.carrier.id), concurrency: i.calls_at_once, alsoEmail: i.also_email } },
+          detail: `${METHOD_TEXT[i.method](pick.length, "carrier", i.wait_minutes ?? 15)} Open at ${money(load.target_rate)}, up to ${money(load.max_rate)}.`,
+          request: { path: "/api/campaigns", method: "POST", json: { type: "capacity", loadId: load.id, carrierIds: pick.map((r) => r.carrier.id), concurrency: i.calls_at_once, mode: i.method, waitMinutes: i.wait_minutes ?? 15 } },
         });
         return `Ready for the user to confirm. Top of the list: ${pick.slice(0, 3).map((r) => r.carrier.name).join(", ")}.`;
       },
     }),
     betaZodTool({
       name: "propose_customer_calls",
-      description: "Prepare calls to customers to ask for freight, based on their history. Shows the user a Confirm button — nothing is dialed until they press it.",
+      description: "Prepare outreach to customers to ask for freight, based on their history: email, phone, or email first with a phone follow-up. Shows the user a Confirm button — nothing is sent or dialed until they press it.",
       inputSchema: z.object({
         customer_names: z.array(z.string()).describe("Exact customer names from get_customers_due"),
         calls_at_once: z.number().int().min(1).max(10),
+        method: z.enum(["email_first", "email_only", "call_only", "both"]).describe("email_first (default): email now, phone only those who don't answer."),
+        wait_minutes: z.number().int().min(0).max(240).optional(),
       }),
       run: async (i) => {
         const all = await db().list("customers");
         const wanted = i.customer_names.map((n) => n.toLowerCase());
-        const pick = all.filter((c) => wanted.includes(c.name.toLowerCase()) && c.phone && !c.do_not_call);
-        if (!pick.length) return "None of those customers can be called (not found, no phone, or marked do-not-call).";
+        const pick = all.filter((c) => wanted.includes(c.name.toLowerCase()) && (c.phone || c.email) && !c.do_not_call);
+        if (!pick.length) return "None of those customers can be reached (not found, no phone or email, or marked do-not-call).";
         actions.push({
           id: crypto.randomUUID(),
-          label: `Call ${pick.length} customer${pick.length === 1 ? "" : "s"} for freight`,
-          detail: `${pick.map((c) => c.name).join(", ")} — ${i.calls_at_once} at a time.`,
-          request: { path: "/api/campaigns", method: "POST", json: { type: "customer", customerIds: pick.map((c) => c.id), concurrency: i.calls_at_once } },
+          label: `Ask ${pick.length} customer${pick.length === 1 ? "" : "s"} for freight`,
+          detail: `${pick.map((c) => c.name).join(", ")}. ${METHOD_TEXT[i.method](pick.length, "customer", i.wait_minutes ?? 15)}`,
+          request: { path: "/api/campaigns", method: "POST", json: { type: "customer", customerIds: pick.map((c) => c.id), concurrency: i.calls_at_once, mode: i.method, waitMinutes: i.wait_minutes ?? 15 } },
         });
         return `Ready for the user to confirm: ${pick.map((c) => c.name).join(", ")}.`;
       },
@@ -194,20 +204,20 @@ async function offline(history: ChatTurn[], tools: { name: string; run: (input: 
   const b = await board();
   const note = " (Practice brain — add your Claude key and I can hold a real conversation.)";
   if (/(customer|repeat|who should i call|due)/.test(q)) {
-    const due = (await customersDue(3)).filter((c) => c.has_phone);
+    const due = await customersDue(3);
     if (!due.length) return { reply: "No customers on file yet. Drop some rate confirmations on the Customers screen and I'll study them." + note, actions };
-    if (/(call|start|go|do it)/.test(q)) {
+    if (/(call|email|reach|start|go|do it)/.test(q)) {
       const tool = tools.find((t) => t.name === "propose_customer_calls")!;
-      await tool.run({ customer_names: due.map((d) => d.name), calls_at_once: 3 } as never);
+      await tool.run({ customer_names: due.map((d) => d.name), calls_at_once: 3, method: "email_first" } as never);
     }
-    return { reply: `Most likely to have freight: ${due.map((d) => `${d.name}, ${d.chance_of_freight} out of 100`).join("; ")}.${actions.length ? " Press Confirm and I'll call them." : " Say call them and I'll set it up."}` + note, actions };
+    return { reply: `Most likely to have freight: ${due.map((d) => `${d.name}, ${d.chance_of_freight} out of 100`).join("; ")}.${actions.length ? " Press Confirm and I'll email them, then call anyone who doesn't answer." : " Say reach out and I'll set it up."}` + note, actions };
   }
   if (/(truck|carrier|cover|find|capacity)/.test(q)) {
     const l = b.loads_needing_trucks.find((x) => x.status === "open" && x.start_offer && x.max_pay);
     if (!l) return { reply: "Nothing is ready for a truck search right now." + note, actions };
     const tool = tools.find((t) => t.name === "propose_truck_search")!;
-    await tool.run({ load_ref: l.ref, carriers_to_call: 12, calls_at_once: 5, also_email: true } as never);
-    return { reply: `${l.lane} is ready. I lined up the twelve best-fit carriers, five at a time, opening at ${money(l.start_offer)}. Press Confirm to start.` + note, actions };
+    await tool.run({ load_ref: l.ref, carriers_to_call: 12, calls_at_once: 5, method: "email_first" } as never);
+    return { reply: `${l.lane} is ready. I lined up the twelve best-fit carriers: email first at ${money(l.start_offer)}, then phone anyone who hasn't answered. Press Confirm to start.` + note, actions };
   }
   const margin = b.covered_today.reduce((a, l) => a + (l.margin ?? 0), 0);
   return {

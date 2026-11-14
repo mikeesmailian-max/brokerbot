@@ -102,7 +102,7 @@ export function nodeLabel(c: Call): string {
   const t = toneOf(c);
   if (t === "won") return c.type === "customer" ? "Has freight!" : `Booked ${money(c.agreed_rate)}`;
   if (t === "told") return "Released";
-  if (t === "wait") return "In line";
+  if (t === "wait") return c.stage?.startsWith("Will call") ? "Call later if needed" : "In line";
   if (t === "mail") return c.last_offer ? `Countered ${money(c.last_offer)}` : "Emailed";
   if (t === "ring") return "Ringing…";
   if (t === "haggle") return `Wants ${money(c.last_ask)}`;
@@ -113,7 +113,7 @@ export function nodeLabel(c: Call): string {
 
 /** One bubble per company: if we both called and emailed someone, show the more important of the two. */
 export function mergeByCompany(calls: Call[]): { call: Call; emailed: boolean }[] {
-  const rank: Record<Tone, number> = { won: 0, haggle: 1, talk: 2, ring: 3, told: 4, off: 5, wait: 6, mail: 7 };
+  const rank: Record<Tone, number> = { won: 0, haggle: 1, talk: 2, ring: 3, told: 4, off: 5, mail: 6, wait: 7 };
   const groups = new Map<string, Call[]>();
   for (const c of calls) {
     const key = c.carrier_id ?? c.customer_id ?? c.id;
@@ -127,3 +127,10 @@ export function mergeByCompany(calls: Call[]): { call: Call; emailed: boolean }[
     return { call, emailed: g.some((c) => c.channel === "email") };
   });
 }
+
+/** Time left until the phone follow-up starts, as m:ss. */
+export const countdown = (iso: string | null) => {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000));
+  return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};

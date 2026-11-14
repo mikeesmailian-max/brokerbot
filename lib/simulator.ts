@@ -99,3 +99,58 @@ async function customerCall(call: Call, d: typeof import("./dispatcher")) {
   if (roll < 0.75) return d.logOutcome({ callId: call.id, outcome: "no_loads", notes: "Check back next week" });
   return d.logOutcome({ callId: call.id, outcome: "callback", notes: "Asked for a call tomorrow morning" });
 }
+
+/**
+ * Practice mode: a few of the people we "emailed" answer through their private link,
+ * so you can watch email replies compete with phone calls.
+ */
+export function simulateEmailReplies(rows: Call[]) {
+  for (const row of rows) void emailReply(row).catch((e) => console.error("simulator email", e));
+}
+
+async function emailReply(row: Call) {
+  const d = await import("./dispatcher");
+  const roll = Math.random();
+  const stillOpen = async () => {
+    const c = await db().get("calls", row.id);
+    return c && c.status === "sent" ? c : null;
+  };
+
+  if (row.type === "customer") {
+    if (roll > 0.6) return; // no reply
+    await wait(6, 28);
+    if (!(await stillOpen())) return;
+    if (roll < 0.3) {
+      const past = (await db().list("loads", { eq: { customer_id: row.customer_id } })).filter((l) => l.status === "delivered");
+      const like = past[Math.floor(Math.random() * past.length)];
+      await d.logCustomerLoad({
+        callId: row.id,
+        origin: like ? `${like.origin_city}, ${like.origin_state}` : "Dallas, TX",
+        destination: like ? `${like.dest_city}, ${like.dest_state}` : "Atlanta, GA",
+        pickup_date: new Date(Date.now() + (1 + Math.floor(Math.random() * 4)) * 86400000).toISOString().slice(0, 10),
+        equipment: like?.equipment ?? "Dry Van",
+        commodity: like?.commodity ?? undefined,
+        weight_lbs: like?.weight_lbs ?? undefined,
+        rate: like?.customer_rate ?? undefined,
+      });
+    } else {
+      await d.logEmailReply({ callId: row.id, answer: roll < 0.5 ? "none" : "call" });
+    }
+    return;
+  }
+
+  if (roll > 0.3) return; // most carriers don't answer email quickly
+  const load = row.load_id ? await db().get("loads", row.load_id) : null;
+  if (!load) return;
+  const steps = ladder(load);
+  const span = Math.max(steps[3] - steps[0], 100);
+  let ask = Math.round((steps[0] + span * (0.4 + Math.random() * 1.2)) / 50) * 50;
+  for (let round = 0; round < 3; round++) {
+    await wait(round === 0 ? 8 : 5, round === 0 ? 40 : 12);
+    if (!(await stillOpen())) return;
+    const r = await d.submitOffer({ callId: row.id, ask, mcNumber: row.mc_number });
+    if (r.status !== "counter" && r.status !== "final_offer") return;
+    if (Math.random() < 0.5) ask = r.offer; // accepts our number on the next round
+    else return;
+  }
+}

@@ -4,9 +4,9 @@ import { laneOf, logEvent, money, newCall, newCampaign, newLoad, newToken, now, 
 import { decide } from "./negotiation";
 import { outboundCall } from "./elevenlabs";
 import { cutInWithCoveredLine } from "./twilio";
-import { coveredEmail, loadOfferEmail, sendEmail } from "./email";
+import { coveredEmail, customerCheckInEmail, loadOfferEmail, sendEmail } from "./email";
 import { studyCustomer } from "./history";
-import { simulateCall } from "./simulator";
+import { simulateCall, simulateEmailReplies } from "./simulator";
 import { ACTIVE_CALL, type Call, type CallOutcome, type Campaign, type Load } from "./types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -14,11 +14,32 @@ const first = (name: string | null) => (name || "").trim().split(/\s+/)[0] || "t
 
 /* ───────────────────────── Starting campaigns ───────────────────────── */
 
+/**
+ * How to reach people:
+ *  email_first – email everyone now; phone only those who haven't answered once the wait is up
+ *  email_only  – email and wait for replies
+ *  call_only   – phone only
+ *  both        – email and phone at the same moment
+ */
+export type OutreachMode = "email_first" | "email_only" | "call_only" | "both";
+const MODES: OutreachMode[] = ["email_first", "email_only", "call_only", "both"];
+export const asMode = (v: unknown, fallback: OutreachMode = "email_first"): OutreachMode =>
+  MODES.includes(v as OutreachMode) ? (v as OutreachMode) : fallback;
+
+/** How long to give email before the phones start. Practice mode shortens it so you can watch. */
+const waitMs = (minutes: number | undefined, type: "capacity" | "customer") => {
+  const ms = Math.max(0, Math.min(24 * 60, Number(minutes ?? 15) || 0)) * 60_000;
+  return callsAreReal(type) ? ms : Math.min(ms, 15_000);
+};
+const emailStage = () => (emailIsReal() ? "Emailed — waiting for a reply" : "Emailed (practice: nothing really sent)");
+const clockTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
 export async function startCapacityCampaign(args: {
   loadId: string;
   carrierIds: string[];
   concurrency: number;
-  alsoEmail: boolean;
+  mode: OutreachMode;
+  waitMinutes?: number;
 }): Promise<Campaign> {
   const store = db();
   const load = await store.get("loads", args.loadId);
@@ -26,7 +47,7 @@ export async function startCapacityCampaign(args: {
   if (load.status !== "open" && load.status !== "searching" && load.status !== "draft")
     throw new Error(`This load is already ${load.status}.`);
   if (load.target_rate == null || load.max_rate == null)
-    throw new Error("Set the starting offer and the most you will pay before calling.");
+    throw new Error("Set the starting offer and the most you will pay first.");
   if (load.max_rate < load.target_rate) throw new Error("The most you will pay is lower than your starting offer.");
 
   const running = await store.list("campaigns", { eq: { load_id: load.id, status: "running" } });
@@ -35,113 +56,201 @@ export async function startCapacityCampaign(args: {
   const all = await store.list("carriers");
   const byId = new Map(all.map((c) => [c.id, c]));
   const picked = args.carrierIds.map((id) => byId.get(id)).filter((c) => c && !c.do_not_call) as typeof all;
-  if (!picked.length) throw new Error("Pick at least one carrier to contact.");
+  const wantEmail = args.mode !== "call_only", wantCalls = args.mode !== "email_only";
+  const toEmail = wantEmail ? picked.filter((c) => c.email) : [];
+  const toCall = wantCalls ? picked.filter((c) => c.phone) : [];
+  if (!toEmail.length && !toCall.length)
+    throw new Error(args.mode === "email_only" ? "None of the carriers you picked has an email address." : "Pick at least one carrier to contact.");
 
+  // Phones wait only when there are emails out to wait on.
+  const delayed = args.mode === "email_first" && toEmail.length > 0 && toCall.length > 0;
+  const startAt = delayed ? new Date(Date.now() + waitMs(args.waitMinutes, "capacity")).toISOString() : null;
+  const hasCalls = toCall.length > 0;
   const campaign = newCampaign({
     type: "capacity",
     load_id: load.id,
     concurrency: Math.max(1, Math.min(50, Math.round(args.concurrency) || 5)),
-    also_email: args.alsoEmail,
+    also_email: toEmail.length > 0,
+    mode: args.mode,
+    calls_start_at: startAt,
+    calls_started: !delayed,
+    // Email-only has nothing to "run": the emails are out and replies book the load whenever they arrive.
+    status: hasCalls ? "running" : "completed",
+    ended_at: hasCalls ? null : now(),
   });
   await store.insert("campaigns", [campaign]);
-  await store.update("loads", load.id, { status: "searching" });
+  await store.update("loads", load.id, { status: hasCalls ? "searching" : "open" });
 
-  const calls: Call[] = [];
-  picked.forEach((c, i) => {
-    if (c.phone)
-      calls.push(
-        newCall({
-          campaign_id: campaign.id,
-          type: "capacity",
-          channel: "call",
-          load_id: load.id,
-          carrier_id: c.id,
-          company_name: c.name,
-          contact_name: c.contact_name,
-          phone: c.phone,
-          email: c.email,
-          mc_number: c.mc_number,
-          position: i,
-        }),
-      );
-  });
-  const emails: Call[] = [];
-  if (args.alsoEmail)
-    picked.forEach((c, i) => {
-      if (c.email)
-        emails.push(
-          newCall({
-            campaign_id: campaign.id,
-            type: "capacity",
-            channel: "email",
-            load_id: load.id,
-            carrier_id: c.id,
-            company_name: c.name,
-            contact_name: c.contact_name,
-            email: c.email,
-            mc_number: c.mc_number,
-            status: "sent",
-            stage: emailIsReal() ? "Email sent — waiting for a reply" : "Email drafted (sending is off in demo)",
-            bid_token: newToken(),
-            position: 1000 + i,
-            started_at: now(),
-          }),
-        );
-    });
+  const calls = toCall.map((c, i) =>
+    newCall({
+      campaign_id: campaign.id, type: "capacity", channel: "call", load_id: load.id, carrier_id: c.id,
+      company_name: c.name, contact_name: c.contact_name, phone: c.phone, email: c.email, mc_number: c.mc_number,
+      position: i, stage: delayed ? "Will call if email gets no answer" : "Waiting in line",
+    }),
+  );
+  const emails = toEmail.map((c, i) =>
+    newCall({
+      campaign_id: campaign.id, type: "capacity", channel: "email", load_id: load.id, carrier_id: c.id,
+      company_name: c.name, contact_name: c.contact_name, email: c.email, mc_number: c.mc_number,
+      status: "sent", stage: emailStage(), bid_token: newToken(), position: 1000 + i, started_at: now(),
+    }),
+  );
   await store.insert("calls", [...calls, ...emails]);
+
+  const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
   await logEvent(
     "campaign_started",
-    `Looking for a truck: ${laneOf(load)}. Calling ${calls.length} carrier${calls.length === 1 ? "" : "s"}, ${campaign.concurrency} at a time${emails.length ? `, emailing ${emails.length}` : ""}.`,
+    !hasCalls
+      ? `Emailed ${n(emails.length, "carrier")} about ${laneOf(load)}. First one to say yes gets it.`
+      : delayed
+        ? `Emailed ${n(emails.length, "carrier")} about ${laneOf(load)}. If nobody takes it by ${clockTime(startAt!)}, I start calling.`
+        : `Looking for a truck: ${laneOf(load)}. Calling ${n(calls.length, "carrier")}, ${campaign.concurrency} at a time${emails.length ? `, emailing ${emails.length}` : ""}.`,
     { load_id: load.id, campaign_id: campaign.id },
   );
 
-  // Emails go out in the background of this request; calls start right away.
-  void (async () => {
-    for (const e of emails) {
-      try {
-        const mail = loadOfferEmail(load, e.contact_name, `${cfg().appUrl}/bid/${e.bid_token}`);
-        await sendEmail(e.email!, mail.subject, mail.html);
-      } catch (err) {
-        await store.update("calls", e.id, { status: "ended", outcome: "failed", stage: "Email could not be sent", ended_at: now() });
-        console.error(err);
-      }
-    }
-  })();
-
-  await tick(campaign.id);
+  void deliver(emails, (e) => loadOfferEmail(load, e.contact_name, `${cfg().appUrl}/bid/${e.bid_token}`));
+  if (hasCalls) {
+    if (delayed) arm(campaign);
+    else await tick(campaign.id);
+  }
   return campaign;
 }
 
-export async function startCustomerCampaign(args: { customerIds: string[]; concurrency: number }): Promise<Campaign> {
+export async function startCustomerCampaign(args: {
+  customerIds: string[];
+  concurrency: number;
+  mode: OutreachMode;
+  waitMinutes?: number;
+}): Promise<Campaign> {
   const store = db();
   const all = await store.list("customers");
   const byId = new Map(all.map((c) => [c.id, c]));
-  const picked = args.customerIds.map((id) => byId.get(id)).filter((c) => c && !c.do_not_call && c.phone) as typeof all;
-  if (!picked.length) throw new Error("Pick at least one customer with a phone number.");
+  const picked = args.customerIds.map((id) => byId.get(id)).filter((c) => c && !c.do_not_call) as typeof all;
+  const wantEmail = args.mode !== "call_only", wantCalls = args.mode !== "email_only";
+  const toEmail = wantEmail ? picked.filter((c) => c.email) : [];
+  const toCall = wantCalls ? picked.filter((c) => c.phone) : [];
+  if (!toEmail.length && !toCall.length)
+    throw new Error(args.mode === "email_only" ? "None of the customers you picked has an email address." : "Pick at least one customer with a phone number or email.");
 
-  const campaign = newCampaign({ type: "customer", concurrency: Math.max(1, Math.min(50, Math.round(args.concurrency) || 3)) });
-  await store.insert("campaigns", [campaign]);
-  await store.insert(
-    "calls",
-    picked.map((c, i) =>
-      newCall({
-        campaign_id: campaign.id,
-        type: "customer",
-        channel: "call",
-        customer_id: c.id,
-        company_name: c.name,
-        contact_name: c.contact_name,
-        phone: c.phone,
-        email: c.email,
-        position: i,
-      }),
-    ),
-  );
-  await logEvent("campaign_started", `Calling ${picked.length} customer${picked.length === 1 ? "" : "s"} to ask for freight.`, {
-    campaign_id: campaign.id,
+  const delayed = args.mode === "email_first" && toEmail.length > 0 && toCall.length > 0;
+  const startAt = delayed ? new Date(Date.now() + waitMs(args.waitMinutes, "customer")).toISOString() : null;
+  const hasCalls = toCall.length > 0;
+  const campaign = newCampaign({
+    type: "customer",
+    concurrency: Math.max(1, Math.min(50, Math.round(args.concurrency) || 3)),
+    also_email: toEmail.length > 0,
+    mode: args.mode,
+    calls_start_at: startAt,
+    calls_started: !delayed,
+    status: hasCalls ? "running" : "completed",
+    ended_at: hasCalls ? null : now(),
   });
-  await tick(campaign.id);
+  await store.insert("campaigns", [campaign]);
+
+  const calls = toCall.map((c, i) =>
+    newCall({
+      campaign_id: campaign.id, type: "customer", channel: "call", customer_id: c.id, company_name: c.name,
+      contact_name: c.contact_name, phone: c.phone, email: c.email, position: i,
+      stage: delayed ? "Will call if email gets no answer" : "Waiting in line",
+    }),
+  );
+  const emails = toEmail.map((c, i) =>
+    newCall({
+      campaign_id: campaign.id, type: "customer", channel: "email", customer_id: c.id, company_name: c.name,
+      contact_name: c.contact_name, email: c.email, status: "sent", stage: emailStage(), bid_token: newToken(),
+      position: 1000 + i, started_at: now(),
+    }),
+  );
+  await store.insert("calls", [...calls, ...emails]);
+
+  const n = (count: number) => `${count} customer${count === 1 ? "" : "s"}`;
+  await logEvent(
+    "campaign_started",
+    !hasCalls
+      ? `Emailed ${n(emails.length)} to ask for freight.`
+      : delayed
+        ? `Emailed ${n(emails.length)} to ask for freight. Anyone who hasn't answered by ${clockTime(startAt!)} gets a call.`
+        : `Calling ${n(calls.length)} to ask for freight${emails.length ? `, and emailing ${emails.length}` : ""}.`,
+    { campaign_id: campaign.id },
+  );
+
+  const loads = emails.length ? await store.list("loads", { limit: 5000 }) : [];
+  void deliver(emails, (e) => {
+    const customer = byId.get(e.customer_id!)!;
+    return customerCheckInEmail(customer, studyCustomer(customer, loads), `${cfg().appUrl}/reply/${e.bid_token}`);
+  });
+  if (hasCalls) {
+    if (delayed) arm(campaign);
+    else await tick(campaign.id);
+  }
   return campaign;
+}
+
+/** Send the emails one by one. In practice mode nothing leaves the building and replies are simulated. */
+async function deliver(rows: Call[], build: (row: Call) => { subject: string; html: string }) {
+  const store = db();
+  for (const row of rows) {
+    try {
+      const mail = build(row);
+      await sendEmail(row.email!, mail.subject, mail.html);
+    } catch (err) {
+      await store.update("calls", row.id, { status: "ended", outcome: "failed", stage: "Email could not be sent", ended_at: now() });
+      console.error(err);
+    }
+  }
+  if (!emailIsReal()) simulateEmailReplies(rows);
+}
+
+/* ───────────────────────── Phone as the second step ───────────────────────── */
+
+function arm(campaign: Campaign) {
+  if (!campaign.calls_start_at) return;
+  const ms = Math.max(0, Date.parse(campaign.calls_start_at) - Date.now());
+  const t = setTimeout(() => void startCalls(campaign.id).catch((e) => console.error("startCalls", e)), ms + 50);
+  if (typeof t === "object" && "unref" in t) t.unref();
+}
+
+/** The wait is over (or you pressed "Call now"): phone everyone who hasn't already answered by email. */
+export async function startCalls(campaignId: string): Promise<void> {
+  const store = db();
+  const campaign = await store.get("campaigns", campaignId);
+  if (!campaign || campaign.status !== "running" || campaign.calls_started) return;
+  await store.update("campaigns", campaignId, { calls_started: true, calls_start_at: now() });
+
+  const rows = await store.list("calls", { eq: { campaign_id: campaignId } });
+  const answered = new Set(
+    rows
+      .filter((r) => r.channel === "email" && r.outcome && r.outcome !== "failed")
+      .map((r) => r.carrier_id ?? r.customer_id),
+  );
+  let skipped = 0;
+  for (const r of rows) {
+    if (r.channel !== "call" || r.status !== "queued") continue;
+    if (answered.has(r.carrier_id ?? r.customer_id)) {
+      skipped++;
+      await store.update("calls", r.id, { status: "ended", outcome: "cancelled", stage: "Already answered by email", ended_at: now() });
+    } else {
+      await store.update("calls", r.id, { stage: "Waiting in line" });
+    }
+  }
+  const left = rows.filter((r) => r.channel === "call" && r.status === "queued").length - skipped;
+  if (left > 0)
+    await logEvent(
+      "calls_started",
+      campaign.type === "capacity"
+        ? `No taker by email yet — calling ${left} carrier${left === 1 ? "" : "s"} now.`
+        : `Following up by phone with ${left} customer${left === 1 ? "" : "s"} who ${left === 1 ? "hasn't" : "haven't"} answered the email.`,
+      { load_id: campaign.load_id, campaign_id: campaign.id },
+    );
+  await tick(campaignId);
+}
+
+/** Safety net for the timer: anything whose wait is over gets its calls started. Runs whenever the dashboard refreshes. */
+export async function pump(): Promise<void> {
+  const waiting = (await db().list("campaigns", { eq: { status: "running" } })).filter(
+    (c) => !c.calls_started && c.calls_start_at && Date.parse(c.calls_start_at) <= Date.now(),
+  );
+  for (const c of waiting) await startCalls(c.id).catch((e) => console.error("pump", e));
 }
 
 /* ───────────────────────── The dialer loop ───────────────────────── */
@@ -150,7 +259,7 @@ export async function startCustomerCampaign(args: { customerIds: string[]; concu
 export async function tick(campaignId: string): Promise<void> {
   const store = db();
   const campaign = await store.get("campaigns", campaignId);
-  if (!campaign || campaign.status !== "running") return;
+  if (!campaign || campaign.status !== "running" || !campaign.calls_started) return;
 
   let calls = await store.list("calls", { eq: { campaign_id: campaignId } });
 
@@ -255,17 +364,18 @@ async function finishCampaign(campaign: Campaign, status: "completed" | "stopped
         "campaign_ended",
         status === "stopped"
           ? `Search stopped for ${laneOf(load)}.`
-          : `Called everyone on the list for ${laneOf(load)} — no truck yet. Try more carriers or raise the ceiling.${bids}`,
+          : `Reached everyone on the list for ${laneOf(load)} — no truck yet. Try more carriers or raise the ceiling.${bids}`,
         { load_id: load.id, campaign_id: campaign.id },
         "warn",
       );
     }
   } else if (campaign.type === "customer") {
     const calls = await store.list("calls", { eq: { campaign_id: campaign.id } });
-    const found = calls.filter((c) => c.outcome === "load_found").length;
+    const reached = new Set(calls.map((c) => c.customer_id)).size;
+    const found = new Set(calls.filter((c) => c.outcome === "load_found").map((c) => c.customer_id)).size;
     await logEvent(
       "campaign_ended",
-      `Customer calls finished: ${found} with freight out of ${calls.length} called.`,
+      `Customer outreach finished: ${found} with freight out of ${reached} contacted.`,
       { campaign_id: campaign.id },
       found ? "success" : "info",
     );
@@ -503,10 +613,14 @@ export async function logCustomerLoad(args: {
     source: "customer_call",
   });
   await store.insert("loads", [load]);
-  await store.update("calls", call.id, { outcome: "load_found", stage: `Has freight: ${laneOf(load)}` });
+  await store.update("calls", call.id, {
+    outcome: "load_found",
+    stage: `Has freight: ${laneOf(load)}`,
+    ...(call.channel === "email" ? { status: "ended" as const, ended_at: now() } : {}),
+  });
   await logEvent(
     "load_found",
-    `${call.company_name} has a load: ${laneOf(load)}${load.pickup_date ? ", picks " + load.pickup_date : ""}. Saved as a draft for you to review.`,
+    `${call.company_name} has a load${call.channel === "email" ? " (answered by email)" : ""}: ${laneOf(load)}${load.pickup_date ? ", picks " + load.pickup_date : ""}. Saved as a draft for you to review.`,
     { load_id: load.id, call_id: call.id, campaign_id: call.campaign_id },
     "success",
   );
@@ -537,3 +651,26 @@ export async function logOutcome(args: { callId: string; outcome: CallOutcome; n
 }
 
 export { COVERED_LINE };
+
+/** A customer answered the check-in email without a load: nothing right now, or "call me". */
+export async function logEmailReply(args: { callId: string; answer: "none" | "call"; notes?: string }) {
+  const store = db();
+  const call = await store.get("calls", args.callId);
+  if (!call || call.channel !== "email") return { status: "error" };
+  if (call.outcome === "load_found") return { status: "ok" };
+  const outcome: CallOutcome = args.answer === "call" ? "callback" : "no_loads";
+  await store.update("calls", call.id, {
+    status: "ended",
+    outcome,
+    stage: [args.answer === "call" ? "Replied: please call me" : "Replied: nothing moving right now", args.notes].filter(Boolean).join(" — "),
+    summary: args.notes || call.summary,
+    ended_at: now(),
+  });
+  if (call.customer_id) await store.update("customers", call.customer_id, { last_contacted_at: now() });
+  await logEvent(
+    "email_reply",
+    args.answer === "call" ? `${call.company_name} replied by email: wants a call.` : `${call.company_name} replied by email: nothing moving right now.`,
+    { call_id: call.id, campaign_id: call.campaign_id },
+  );
+  return { status: "ok" };
+}

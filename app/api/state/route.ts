@@ -3,12 +3,14 @@ import { callsAreReal, emailIsReal, twilioReady } from "@/lib/config";
 import { extractionIsReal } from "@/lib/extract";
 import { fail, json } from "@/lib/http";
 import { ACTIVE_CALL } from "@/lib/types";
+import { pump } from "@/lib/dispatcher";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const store = db();
+    await pump(); // start any phone follow-ups whose email wait is over
     const [loads, calls, events, campaigns] = await Promise.all([
       store.list("loads", { in: ["status", ["draft", "open", "searching", "covered"]], order: ["created_at", "desc"], limit: 200 }),
       store.list("calls", { order: ["created_at", "desc"], limit: 400 }),

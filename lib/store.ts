@@ -49,12 +49,16 @@ function loadFromDisk(): Mem | null {
     const mem = { ...EMPTY(), ...(JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) as Partial<Mem>) };
     // Anything that was mid-call when the app stopped can't be resumed: close it out cleanly.
     const at = new Date().toISOString();
+    // Campaigns still waiting on email (phones not started) carry on; the dashboard restarts their timer.
+    const waiting = new Set(mem.campaigns.filter((c) => c.status === "running" && c.calls_started === false).map((c) => c.id));
     for (const c of mem.calls) {
       if (c.status === "ended" || c.status === "sent") continue;
+      if (c.status === "queued" && waiting.has(c.campaign_id)) continue;
       Object.assign(c, { status: "ended", outcome: c.outcome ?? "cancelled", stage: c.outcome ? c.stage : "Stopped — the app restarted", ended_at: at });
     }
-    for (const c of mem.campaigns) if (c.status === "running") Object.assign(c, { status: "stopped", ended_at: at });
-    for (const l of mem.loads) if (l.status === "searching") l.status = "open";
+    for (const c of mem.campaigns) if (c.status === "running" && !waiting.has(c.id)) Object.assign(c, { status: "stopped", ended_at: at });
+    const stillSearching = new Set(mem.campaigns.filter((c) => waiting.has(c.id)).map((c) => c.load_id));
+    for (const l of mem.loads) if (l.status === "searching" && !stillSearching.has(l.id)) l.status = "open";
     return mem;
   } catch (e) {
     console.error("Could not read saved data — starting from sample data.", e);

@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/Shell";
-import { DropZone, useToast } from "@/components/ui";
+import { DropZone, Modal, useToast } from "@/components/ui";
+import { MethodPicker, type Mode } from "@/components/MethodPicker";
 import { Icon } from "@/components/Icon";
 import { Ecosystem, type EcoNode } from "@/components/Ecosystem";
-import { api, mergeByCompany, nodeLabel, OUTCOME, toneOf, useLive } from "@/lib/client";
+import { api, countdown, mergeByCompany, nodeLabel, OUTCOME, toneOf, useLive, useTick } from "@/lib/client";
 import { laneOf, money, shortDate } from "@/lib/format";
 import type { Customer, CustomerHistory, Load } from "@/lib/types";
 
@@ -23,6 +24,10 @@ export default function Customers() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [lines, setLines] = useState(3);
+  const [how, setHow] = useState<Mode>("email_first");
+  const [wait, setWait] = useState(15);
+  const [sheet, setSheet] = useState(false);
+  useTick();
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", contact_name: "", phone: "", email: "" });
@@ -39,8 +44,10 @@ export default function Customers() {
     return all.filter((c) => c.campaign_id === all[0]?.campaign_id).sort((a, b) => a.position - b.position);
   }, [state]);
   const running = state?.campaigns.find((c) => c.type === "customer") ?? null;
-  const nodes: EcoNode[] = mergeByCompany(custCalls).map(({ call: c }) => ({ id: c.id, name: c.company_name, tone: toneOf(c), label: nodeLabel(c) }));
-  const found = custCalls.filter((c) => c.outcome === "load_found").length;
+  const nodes: EcoNode[] = mergeByCompany(custCalls).map(({ call: c, emailed }) => ({ id: c.id, name: c.company_name, tone: toneOf(c), label: nodeLabel(c), emailed }));
+  const found = new Set(custCalls.filter((c) => c.outcome === "load_found").map((c) => c.customer_id)).size;
+  const waiting = Boolean(running && !running.calls_started && running.calls_start_at);
+  const emailsOut = custCalls.filter((c) => c.channel === "email" && c.status === "sent").length;
   const drafts = (state?.loads ?? []).filter((l) => l.status === "draft" && l.source === "customer_call");
 
   // Refresh history when a campaign wraps up.
@@ -74,17 +81,20 @@ export default function Customers() {
   }, [load, toast]);
 
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const callable = (rows ?? []).filter((r) => picked.has(r.id) && r.phone && !r.do_not_call);
-  const pickDue = () => setPicked(new Set((rows ?? []).filter((r) => r.phone && !r.do_not_call && r.history.due_score >= 50).map((r) => r.id)));
+  const chosen = (rows ?? []).filter((r) => picked.has(r.id) && (r.phone || r.email) && !r.do_not_call);
+  const emails = how === "call_only" ? 0 : chosen.filter((r) => r.email).length;
+  const calls = how === "email_only" ? 0 : chosen.filter((r) => r.phone).length;
+  const pickDue = () => setPicked(new Set((rows ?? []).filter((r) => (r.phone || r.email) && !r.do_not_call && r.history.due_score >= 50).map((r) => r.id)));
 
   const start = async () => {
     setBusy(true);
     try {
-      await api("/api/campaigns", { json: { type: "customer", customerIds: callable.map((r) => r.id), concurrency: lines } });
+      await api("/api/campaigns", { json: { type: "customer", customerIds: chosen.map((r) => r.id), concurrency: lines, mode: how, waitMinutes: wait } });
+      setSheet(false);
       setPicked(new Set());
       await refreshLive();
       window.scrollTo({ top: 0, behavior: "smooth" });
-      toast.show("Calling your customers. Watch the map.", "good");
+      toast.show(how === "call_only" ? "Calling your customers. Watch the map." : "Emails are going out to your customers.", "good");
     } catch (e) {
       toast.show(e instanceof Error ? e.message : String(e), "bad");
     } finally { setBusy(false); }
@@ -133,13 +143,19 @@ export default function Customers() {
       {custCalls.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-head">
-            <span className="card-title">{running ? "Calling customers now" : "Last round of customer calls"}</span>
+            <span className="card-title">{waiting ? "Emails are out" : running ? "Reaching out to customers now" : "Last round of customer outreach"}</span>
             <div className="row">
               <span className="chip green">{found} with freight</span>
               {running && <button className="btn sm danger" onClick={async () => { await api(`/api/campaigns/${running.id}/stop`, { method: "POST" }); await refreshLive(); }}><Icon name="stop" size={14} />Stop</button>}
             </div>
           </div>
-          <Ecosystem compact hub={{ line1: "You", sub: running ? "CALLING…" : "DONE", done: !running && found > 0, busy: Boolean(running) }} nodes={nodes} idle="" />
+          {waiting && running && (
+            <div className="banner-wait" style={{ margin: "14px 18px 0" }}>
+              <div className="grow"><b>{emailsOut} email{emailsOut === 1 ? " is" : "s are"} waiting for an answer.</b> Anyone who hasn&apos;t replied gets a call in <span className="count">{countdown(running.calls_start_at)}</span>.</div>
+              <button className="btn sm primary" onClick={async () => { await api(`/api/campaigns/${running.id}/call-now`, { method: "POST" }); await refreshLive(); }}><Icon name="phone" size={14} />Call now</button>
+            </div>
+          )}
+          <Ecosystem compact hub={{ line1: "You", sub: waiting ? "WAITING ON EMAIL" : running ? "CALLING…" : "DONE", done: !running && found > 0, busy: Boolean(running) }} nodes={nodes} idle="" />
           {drafts.length > 0 && (
             <div className="banner-win" style={{ margin: "0 16px 16px" }}>
               <span className="badge-ico"><Icon name="box" size={18} /></span>
@@ -162,12 +178,13 @@ export default function Customers() {
           return (
             <div key={r.id} className="cust" style={r.do_not_call ? { opacity: 0.55 } : undefined}>
               <input type="checkbox" style={{ marginTop: 3 }} aria-label={`Select ${r.name}`}
-                checked={picked.has(r.id)} disabled={!r.phone || r.do_not_call} onChange={() => toggle(r.id)} />
+                checked={picked.has(r.id)} disabled={(!r.phone && !r.email) || r.do_not_call} onChange={() => toggle(r.id)} />
               <div>
                 <div style={{ fontWeight: 600, fontSize: 17 }}>{r.name}</div>
                 <div className="small muted">{[r.contact_name, r.phone, r.email].filter(Boolean).join(" · ") || "No contact details yet"}</div>
                 <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
-                  {!r.phone && <span className="chip amber">No phone — can&apos;t call</span>}
+                  {!r.phone && <span className="chip amber">No phone{r.email ? " — email only" : ""}</span>}
+                  {!r.email && r.phone && <span className="chip amber">No email — phone only</span>}
                   {r.do_not_call && <span className="chip red">Do not call</span>}
                   {lastCall && <span className={"chip " + (OUTCOME[lastCall.outcome ?? ""]?.chip ?? "")}>Last call: {OUTCOME[lastCall.outcome ?? ""]?.label ?? "done"}</span>}
                 </div>
@@ -210,17 +227,46 @@ export default function Customers() {
 
       {picked.size > 0 && (
         <div className="card sticky-bar">
-          <b>{callable.length} customer{callable.length === 1 ? "" : "s"} picked</b>
-          <div className="row grow" style={{ minWidth: 220, maxWidth: 360 }}>
-            <span className="small muted" style={{ whiteSpace: "nowrap" }}>Calls at once: <b style={{ color: "var(--text)" }}>{lines}</b></span>
-            <input type="range" min={1} max={10} value={lines} onChange={(e) => setLines(Number(e.target.value))} aria-label="Calls at once" />
-          </div>
+          <b>{chosen.length} customer{chosen.length === 1 ? "" : "s"} picked</b>
           <span className="grow" />
           <button className="btn" onClick={() => setPicked(new Set())}>Clear</button>
-          <button className="btn go big" disabled={busy || !callable.length || Boolean(running)} onClick={start}>
-            {running ? "Calls already running" : `Call ${callable.length} for loads`}
+          <button className="btn go big" disabled={!chosen.length || Boolean(running)} onClick={() => setSheet(true)}>
+            {running ? "Outreach already running" : `Ask ${chosen.length} for loads`}
           </button>
         </div>
+      )}
+
+      {sheet && (
+        <Modal
+          wide
+          title={<>Ask {chosen.length} customer{chosen.length === 1 ? "" : "s"} for freight</>}
+          onClose={() => setSheet(false)}
+          foot={
+            <>
+              <button className="btn" onClick={() => setSheet(false)}>Cancel</button>
+              <button className="btn go big" disabled={busy || (!emails && !calls)} onClick={start}>
+                {busy ? "Starting…" : how === "email_first" ? `Email ${emails} now${calls ? ", call later if needed" : ""}` : how === "email_only" ? `Email ${emails}` : how === "call_only" ? `Call ${calls}` : `Email ${emails} and call ${calls}`}
+              </button>
+            </>
+          }
+        >
+          <div className="hint" style={{ marginBottom: 14 }}>
+            Each customer gets a short, personal check-in built from their history (their usual lane), with one-tap answers: <b>send a load</b>, <b>nothing right now</b>, or <b>call me</b>. Loads they send land on your Command Center as drafts.
+          </div>
+          {state?.mode.calls === "simulated" && <div className="hint warn" style={{ marginBottom: 14 }}><b>Practice mode:</b> no emails go out and no phones ring. You&apos;ll see a realistic simulation.</div>}
+          <div className="section-label" style={{ marginTop: 4 }}>How to reach them</div>
+          <MethodPicker mode={how} setMode={setHow} wait={wait} setWait={setWait} practice={state?.mode.calls === "simulated"} />
+          {how !== "email_only" && (
+            <div className="f" style={{ marginTop: 18, maxWidth: 420 }}>
+              <label htmlFor="clines">Calls at the same time: <b style={{ color: "var(--text)" }}>{lines}</b></label>
+              <input id="clines" type="range" min={1} max={10} value={lines} onChange={(e) => setLines(Number(e.target.value))} />
+            </div>
+          )}
+          <div className="small muted" style={{ marginTop: 14 }}>
+            {chosen.filter((r) => !r.email).length > 0 && how !== "call_only" && <>{chosen.filter((r) => !r.email).length} picked customer(s) have no email{how === "email_only" ? " and will be skipped" : " and will only be called"}. </>}
+            {chosen.filter((r) => !r.phone).length > 0 && how !== "email_only" && <>{chosen.filter((r) => !r.phone).length} have no phone{how === "call_only" ? " and will be skipped" : " and will only be emailed"}.</>}
+          </div>
+        </Modal>
       )}
       {toast.node}
     </Shell>

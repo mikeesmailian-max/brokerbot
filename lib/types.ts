@@ -81,6 +81,11 @@ export interface Campaign {
   status: "running" | "completed" | "stopped";
   concurrency: number;
   also_email: boolean;
+  /** email_first: email now, phone later only if needed. */
+  mode: "email_first" | "email_only" | "call_only" | "both";
+  /** When the phones start (email_first). Null when calls start right away or never. */
+  calls_start_at: string | null;
+  calls_started: boolean;
   created_at: string;
   ended_at: string | null;
 }
