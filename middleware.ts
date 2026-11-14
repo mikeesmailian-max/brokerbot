@@ -15,7 +15,12 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (PUBLIC.some((p) => p.test(path))) return NextResponse.next();
   const want = await sha256(password + "|freight-command");
-  if (req.cookies.get("fc_session")?.value === want) return NextResponse.next();
+  if (req.cookies.get("fc_session")?.value === want) {
+    // Signed-in responses are for this person only: no proxy or CDN may keep a copy.
+    const res = NextResponse.next();
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
+  }
   if (path.startsWith("/api/")) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   const url = req.nextUrl.clone();
   url.pathname = "/login";
