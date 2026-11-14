@@ -76,7 +76,7 @@ export default function History() {
                   <td>{c.type === "customer" ? <span className="chip teal">Asked for freight</span> : l ? <>{l.lane}<div className="tiny muted">{l.ref}</div></> : "—"}</td>
                   <td><span className={"chip " + (o?.chip ?? "")}>{o?.label ?? c.outcome ?? "—"}</span></td>
                   <td className="num">{money(c.last_ask)}</td>
-                  <td className="num" style={{ fontWeight: 800 }}>{money(c.agreed_rate)}</td>
+                  <td className="num" style={{ fontWeight: 600 }}>{money(c.agreed_rate)}</td>
                   <td className="num small muted">{c.channel === "call" && c.duration_secs != null ? `${Math.floor(c.duration_secs / 60)}:${String(c.duration_secs % 60).padStart(2, "0")}` : "—"}</td>
                   <td className="small muted">{c.stage ?? ""}</td>
                 </tr>

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { DropZone, useToast } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { Ecosystem, type EcoNode } from "@/components/Ecosystem";
 import { LoadEditor } from "@/components/LoadEditor";
 import { Launcher } from "@/components/Launcher";
@@ -78,19 +79,19 @@ export default function CommandCenter() {
   return (
     <Shell mode={state?.mode} offline={offline}>
       <div className="kpis">
-        <Kpi ico="📞" cls="hot" val={k ? String(k.activeCalls) : "–"} label={k?.waiting ? `On the phone now · ${k.waiting} in line` : "On the phone now"} />
-        <Kpi ico="📦" val={k ? String(k.needTruck) : "–"} label="Loads that need a truck" />
-        <Kpi ico="✅" cls="win" val={k ? String(k.coveredToday) : "–"} label="Covered today" />
-        <Kpi ico="💵" cls="win" val={k ? money(k.marginToday) : "–"} label="Margin booked today" />
-        <Kpi ico="📈" val={k ? `${k.callsToday}` : "–"} label={k?.reachRate != null ? `Calls today · ${k.reachRate}% picked up` : "Calls today"} />
+        <Kpi ico="phone" cls="blue" val={k ? String(k.activeCalls) : "–"} label={k?.waiting ? `On the phone now · ${k.waiting} in line` : "On the phone now"} />
+        <Kpi ico="box" cls="orange" val={k ? String(k.needTruck) : "–"} label="Loads that need a truck" />
+        <Kpi ico="check" cls="green" val={k ? String(k.coveredToday) : "–"} label="Covered today" />
+        <Kpi ico="dollar" cls="teal" val={k ? money(k.marginToday) : "–"} label="Margin booked today" />
+        <Kpi ico="chart" cls="purple" val={k ? `${k.callsToday}` : "–"} label={k?.reachRate != null ? `Calls today · ${k.reachRate}% picked up` : "Calls today"} />
       </div>
 
       <div className="grid3">
         {/* ── Left: loads ── */}
         <div className="stack">
           <div className="card card-pad stack">
-            <DropZone icon="📄" title="Drop a rate con or load sheet" sub="PDF, photo or screenshot — I'll pull out the load" accept=".pdf,image/*,.txt,.eml,.csv,.xlsx" onFile={onDoc} />
-            <button className="btn" onClick={() => setEditing({ load: null })}>＋ Add a load by hand</button>
+            <DropZone icon="doc" title="Drop a rate con or load sheet" sub="PDF, photo or screenshot — I'll pull out the load" accept=".pdf,image/*,.txt,.eml,.csv,.xlsx" onFile={onDoc} />
+            <button className="btn block" onClick={() => setEditing({ load: null })}><Icon name="plus" size={17} stroke={2.5} />Add a load by hand</button>
           </div>
           <div className="card">
             <div className="card-head"><span className="card-title">Your board</span><span className="tiny muted">{working.length} open</span></div>
@@ -98,7 +99,7 @@ export default function CommandCenter() {
               {!state && <div className="empty"><span className="spinner" /></div>}
               {state && !loads.length && <div className="empty">No loads yet. Drop a document above to add your first one.</div>}
               {working.map((l) => <LoadRow key={l.id} l={l} on={l.id === selectedId} onClick={() => setSelectedId(l.id)} />)}
-              {covered.length > 0 && <div className="card-title" style={{ padding: "12px 14px 4px" }}>Recently covered</div>}
+              {covered.length > 0 && <div className="list-label">Recently covered</div>}
               {covered.map((l) => <LoadRow key={l.id} l={l} on={l.id === selectedId} onClick={() => setSelectedId(l.id)} />)}
             </div>
           </div>
@@ -108,7 +109,7 @@ export default function CommandCenter() {
         <div className="card">
           {!load ? (
             <div className="empty" style={{ padding: "90px 20px" }}>
-              <div style={{ fontSize: 44 }}>🛰️</div>
+              <div className="drop-ico" style={{ width: 64, height: 64, borderRadius: 18 }}><Icon name="doc" size={32} /></div>
               <div className="h1" style={{ marginTop: 8 }}>Ready when you are</div>
               <p style={{ marginTop: 6 }}>Drop a rate confirmation on the left and I&apos;ll set up the load for you.</p>
             </div>
@@ -126,11 +127,11 @@ export default function CommandCenter() {
                   {load.status !== "covered" && <button className="btn" onClick={() => setEditing({ load })}>Edit</button>}
                   {load.status !== "covered" && !campaign && <button className="btn danger ghost" onClick={() => remove(load)}>Remove</button>}
                   {campaign ? (
-                    <button className="btn danger" onClick={stop}>■ Stop search</button>
+                    <button className="btn danger" onClick={stop}><Icon name="stop" size={16} />Stop search</button>
                   ) : load.status === "draft" ? (
                     <button className="btn primary big" onClick={() => setEditing({ load })}>Check &amp; confirm</button>
                   ) : load.status === "open" ? (
-                    <button className="btn go big" onClick={() => (load.target_rate && load.max_rate ? setLaunching(load) : setEditing({ load }))}>📞 Find a truck</button>
+                    <button className="btn go big" onClick={() => (load.target_rate && load.max_rate ? setLaunching(load) : setEditing({ load }))}><Icon name="phone" size={18} />Find a truck</button>
                   ) : null}
                 </div>
               </div>
@@ -149,7 +150,7 @@ export default function CommandCenter() {
 
               {winner && (
                 <div className="banner-win">
-                  <span style={{ fontSize: 26 }}>🎉</span>
+                  <span className="badge-ico"><Icon name="check" size={20} stroke={3} /></span>
                   <div className="grow">
                     Truck found — <b>{winner.company_name}</b> took it at <b>{money(winner.agreed_rate)}</b>
                     {load.customer_rate != null && winner.agreed_rate != null ? <> · you keep <b>{money(load.customer_rate - winner.agreed_rate)}</b></> : null}.
@@ -158,7 +159,7 @@ export default function CommandCenter() {
                 </div>
               )}
               {load.status === "covered" && !winner && (
-                <div className="banner-win"><span style={{ fontSize: 22 }}>✅</span><div>Covered by <b>{load.covered_by_name}</b> at <b>{money(load.covered_rate)}</b>.</div></div>
+                <div className="banner-win"><span className="badge-ico"><Icon name="check" size={20} stroke={3} /></span><div>Covered by <b>{load.covered_by_name}</b> at <b>{money(load.covered_rate)}</b>.</div></div>
               )}
               {load.status === "draft" && <div className="banner-note">I read this from your document. Give it a quick check and set your low and high numbers — then I can start calling.</div>}
 
@@ -250,9 +251,9 @@ export default function CommandCenter() {
 
 function Kpi({ ico, val, label, cls = "" }: { ico: string; val: string; label: string; cls?: string }) {
   return (
-    <div className={"card kpi " + cls}>
-      <div className="kpi-ico">{ico}</div>
-      <div className="grow"><div className="kpi-val num">{val}</div><div className="kpi-label ellipsis">{label}</div></div>
+    <div className="card kpi">
+      <div className={"kpi-ico " + cls}><Icon name={ico} size={19} stroke={2.2} /></div>
+      <div><div className="kpi-val num">{val}</div><div className="kpi-label">{label}</div></div>
     </div>
   );
 }
@@ -297,7 +298,7 @@ function RateBar({ load }: { load: Load }) {
         <div><div className="k">Customer pays</div><div className="v num">{money(pay)}</div></div>
         <div>
           <div className="k"><span className="swatch" style={{ background: "var(--good)" }} />{paid != null ? "You keep" : "You keep at least"}</div>
-          <div className="v num" style={{ color: "var(--good)" }}>{pay != null ? money(pay - (paid ?? high)) : "—"}</div>
+          <div className="v num" style={{ color: "var(--good-text)" }}>{pay != null ? money(pay - (paid ?? high)) : "—"}</div>
         </div>
       </div>
     </div>

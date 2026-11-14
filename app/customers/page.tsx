@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { DropZone, useToast } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { Ecosystem, type EcoNode } from "@/components/Ecosystem";
 import { api, mergeByCompany, nodeLabel, OUTCOME, toneOf, useLive } from "@/lib/client";
 import { laneOf, money, shortDate } from "@/lib/format";
@@ -104,12 +105,12 @@ export default function Customers() {
           <div className="h1">Customers</div>
           <div className="muted">I study every past job, work out who&apos;s due to ship again, and call them for repeat work.</div>
         </div>
-        <button className="btn" onClick={() => setAdding((a) => !a)}>＋ Add customer</button>
+        <button className="btn" onClick={() => setAdding((a) => !a)}><Icon name="plus" size={17} stroke={2.5} />Add customer</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 16 }}>
-        <DropZone icon="🧾" title="Drop customer rate confirmations" sub="As many as you like. I save the contact's name, email and phone, what the job was and what it paid." accept=".pdf,image/*,.txt,.eml" multiple onFile={onRateCon} />
-        <DropZone icon="📇" title="Or import a customer list" sub="Excel or CSV with company, contact, phone, email" accept=".xlsx,.csv" onFile={onList} />
+        <DropZone icon="receipt" title="Drop customer rate confirmations" sub="As many as you like. I save the contact's name, email and phone, what the job was and what it paid." accept=".pdf,image/*,.txt,.eml" multiple onFile={onRateCon} />
+        <DropZone icon="users" title="Or import a customer list" sub="Excel or CSV with company, contact, phone, email" accept=".xlsx,.csv" onFile={onList} />
       </div>
 
       {adding && (
@@ -135,13 +136,13 @@ export default function Customers() {
             <span className="card-title">{running ? "Calling customers now" : "Last round of customer calls"}</span>
             <div className="row">
               <span className="chip green">{found} with freight</span>
-              {running && <button className="btn sm danger" onClick={async () => { await api(`/api/campaigns/${running.id}/stop`, { method: "POST" }); await refreshLive(); }}>■ Stop</button>}
+              {running && <button className="btn sm danger" onClick={async () => { await api(`/api/campaigns/${running.id}/stop`, { method: "POST" }); await refreshLive(); }}><Icon name="stop" size={14} />Stop</button>}
             </div>
           </div>
           <Ecosystem compact hub={{ line1: "You", sub: running ? "CALLING…" : "DONE", done: !running && found > 0, busy: Boolean(running) }} nodes={nodes} idle="" />
           {drafts.length > 0 && (
             <div className="banner-win" style={{ margin: "0 16px 16px" }}>
-              <span style={{ fontSize: 22 }}>📦</span>
+              <span className="badge-ico"><Icon name="box" size={18} /></span>
               <div className="grow">{drafts.length} new load{drafts.length === 1 ? "" : "s"} captured from these calls — waiting for you on the <a className="link" href="/">Command Center</a>.</div>
             </div>
           )}
@@ -160,10 +161,10 @@ export default function Customers() {
           const lastCall = (state?.calls ?? []).find((c) => c.customer_id === r.id && c.status === "ended");
           return (
             <div key={r.id} className="cust" style={r.do_not_call ? { opacity: 0.55 } : undefined}>
-              <input type="checkbox" style={{ width: 20, height: 20, marginTop: 4, accentColor: "var(--accent)" }} aria-label={`Select ${r.name}`}
+              <input type="checkbox" style={{ marginTop: 3 }} aria-label={`Select ${r.name}`}
                 checked={picked.has(r.id)} disabled={!r.phone || r.do_not_call} onChange={() => toggle(r.id)} />
               <div>
-                <div style={{ fontWeight: 800, fontSize: 17 }}>{r.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 17 }}>{r.name}</div>
                 <div className="small muted">{[r.contact_name, r.phone, r.email].filter(Boolean).join(" · ") || "No contact details yet"}</div>
                 <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
                   {!r.phone && <span className="chip amber">No phone — can&apos;t call</span>}
@@ -198,7 +199,7 @@ export default function Customers() {
                 )}
               </div>
               <div>
-                <div className="small" style={{ fontWeight: 800, marginBottom: 6 }}>{dueText(h)}</div>
+                <div className="small" style={{ fontWeight: 600, marginBottom: 6 }}>{dueText(h)}</div>
                 <div className="meter" title={`Score ${h.due_score}/100`}><i style={{ width: `${h.due_score}%` }} /></div>
                 <div className="tiny muted" style={{ marginTop: 4 }}>{h.loads ? `Chance they have freight: ${h.due_score}/100` : "Introduce yourself"}</div>
               </div>
@@ -217,7 +218,7 @@ export default function Customers() {
           <span className="grow" />
           <button className="btn" onClick={() => setPicked(new Set())}>Clear</button>
           <button className="btn go big" disabled={busy || !callable.length || Boolean(running)} onClick={start}>
-            {running ? "Calls already running" : `📞 Call ${callable.length} for loads`}
+            {running ? "Calls already running" : `Call ${callable.length} for loads`}
           </button>
         </div>
       )}

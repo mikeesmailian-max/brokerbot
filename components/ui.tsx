@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Icon } from "./Icon";
 
 export function Modal({ title, onClose, children, foot, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; foot?: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -12,7 +13,7 @@ export function Modal({ title, onClose, children, foot, wide }: { title: ReactNo
       <div className={"modal" + (wide ? " wide" : "")} role="dialog" aria-modal="true">
         <div className="modal-head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" size={16} stroke={2.5} /></button>
         </div>
         <div className="modal-body">{children}</div>
         {foot && <div className="modal-foot">{foot}</div>}
@@ -54,7 +55,7 @@ export function DropZone({ icon, title, sub, accept, multiple, onFile }: {
         <div><span className="spinner" /> <b style={{ marginLeft: 8 }}>{busy}</b></div>
       ) : (
         <>
-          <div className="drop-ico">{icon}</div>
+          <div className="drop-ico"><Icon name={icon} size={24} /></div>
           <div className="drop-title">{title}</div>
           <div className="small muted">{sub}</div>
         </>

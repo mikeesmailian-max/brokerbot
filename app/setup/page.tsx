@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { api, useLive } from "@/lib/client";
+import { Icon } from "@/components/Icon";
 
 interface Group { id: string; title: string; unlocks: string; where: string; keys: { name: string; help: string; set: boolean }[] }
 
@@ -36,8 +37,8 @@ export default function Setup() {
           return (
             <div key={g.id} className="card card-pad">
               <div className="row wrap" style={{ justifyContent: "space-between" }}>
-                <div style={{ fontWeight: 800, fontSize: 17 }}>{g.title}</div>
-                <span className={"chip " + (ok ? "green" : "amber")}>{ok ? "✓ On" : "Practice mode"}</span>
+                <div style={{ fontWeight: 600, fontSize: 17 }}>{g.title}</div>
+                <span className={"chip " + (ok ? "green" : "amber")}>{ok ? "On" : "Practice mode"}</span>
               </div>
               <div style={{ marginTop: 4 }}>{g.unlocks}</div>
               <div className="small muted" style={{ marginTop: 4 }}><b>Where to get it:</b> {g.where}</div>
@@ -45,7 +46,7 @@ export default function Setup() {
                 <tbody>
                   {g.keys.map((k) => (
                     <tr key={k.name}>
-                      <td style={{ width: 30, paddingLeft: 0 }}>{k.set ? "✅" : "⬜"}</td>
+                      <td style={{ width: 34, paddingLeft: 0, color: k.set ? "var(--good)" : "var(--faint)" }} aria-label={k.set ? "Set" : "Not set"}><Icon name={k.set ? "checkCircle" : "circle"} size={22} /></td>
                       <td style={{ width: 300 }}><code>{k.name}</code></td>
                       <td className="small muted">{k.help}</td>
                     </tr>

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client";
+import { Icon } from "./Icon";
 
 interface Action { id: string; label: string; detail: string; request: { path: string; method: "POST" | "PATCH"; json: unknown }; state?: "done" | "failed" | "busy"; error?: string }
 interface Msg { role: "user" | "assistant"; content: string; actions?: Action[] }
@@ -72,14 +73,14 @@ export function Assistant() {
   return (
     <>
       <button className={"orb" + (busy || listening ? " busy" : "")} onClick={() => setOpen((o) => !o)} aria-label="Open assistant" title="Talk to your command center">
-        <span className="orb-ring" /><span className="orb-ring r2" /><span className="orb-core">{open ? "✕" : "AI"}</span>
+        <span className="orb-ring" /><span className="orb-ring r2" /><span className="orb-core"><Icon name={open ? "x" : "sparkle"} size={24} stroke={2.2} /></span>
       </button>
       {open && (
         <div className="ai-panel card" role="dialog" aria-label="Assistant">
           <div className="ai-head">
             <span className={"ai-pulse" + (busy ? " on" : "")} />
             <div className="grow"><b>Dispatch AI</b><div className="tiny muted">{busy ? "Working on it…" : listening ? "Listening…" : "Online — ask me anything about your board"}</div></div>
-            <button className={"btn sm" + (speak ? " primary" : "")} onClick={() => { if (speak) window.speechSynthesis?.cancel(); setSpeak(!speak); }} title="Read answers out loud">{speak ? "🔊 Voice on" : "🔈 Voice off"}</button>
+            <button className={"btn sm" + (speak ? " primary" : "")} onClick={() => { if (speak) window.speechSynthesis?.cancel(); setSpeak(!speak); }} title="Read answers out loud"><Icon name={speak ? "speaker" : "speakerOff"} size={15} />{speak ? "Voice on" : "Voice off"}</button>
           </div>
           <div className="ai-body">
             {!msgs.length && (
@@ -96,9 +97,9 @@ export function Assistant() {
                     <div key={a.id} className="ai-action">
                       <b>{a.label}</b>
                       <div className="small muted">{a.detail}</div>
-                      {a.state === "done" ? <div className="small" style={{ color: "var(--good)", fontWeight: 800, marginTop: 6 }}>✓ Started — watch the map</div>
+                      {a.state === "done" ? <div className="small" style={{ color: "var(--good-text)", fontWeight: 600, marginTop: 6 }}>Started — watch the map</div>
                         : <button className="btn go sm" style={{ marginTop: 8 }} disabled={a.state === "busy"} onClick={() => confirm(i, a)}>{a.state === "busy" ? "Starting…" : a.state === "failed" ? "Try again" : "Confirm"}</button>}
-                      {a.state === "failed" && <div className="small" style={{ color: "var(--bad)", marginTop: 6 }}>{a.error}</div>}
+                      {a.state === "failed" && <div className="small" style={{ color: "var(--bad-text)", marginTop: 6 }}>{a.error}</div>}
                     </div>
                   ))}
                 </div>
@@ -108,7 +109,7 @@ export function Assistant() {
             <div ref={end} />
           </div>
           <form className="ai-foot" onSubmit={(e) => { e.preventDefault(); void send(text); }}>
-            {canListen && <button type="button" className={"icon-btn" + (listening ? " rec" : "")} onClick={mic} aria-label={listening ? "Stop listening" : "Speak"} title="Speak">🎙️</button>}
+            {canListen && <button type="button" className={"icon-btn" + (listening ? " rec" : "")} onClick={mic} aria-label={listening ? "Stop listening" : "Speak"} title="Speak"><Icon name="mic" size={17} /></button>}
             <input className="input" placeholder="Type or tap the mic…" value={text} onChange={(e) => setText(e.target.value)} aria-label="Message" />
             <button className="btn primary" disabled={busy || !text.trim()}>Send</button>
           </form>

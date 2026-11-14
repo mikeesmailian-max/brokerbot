@@ -4,13 +4,13 @@ import { initials } from "@/lib/format";
 
 export interface EcoNode { id: string; name: string; tone: Tone; label: string; emailed?: boolean }
 
-const CX = 450, CY = 285, HUB = 70, R = 25;
+const CX = 450, CY = 285, HUB = 74, R = 27;
 const RINGS = [
   { cap: 10, rx: 255, ry: 165 },
   { cap: 16, rx: 388, ry: 228 },
 ];
 const MAX = RINGS[0].cap + RINGS[1].cap;
-const short = (s: string, n = 17) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
+const short = (s: string, n = 15) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 
 /**
  * The living map: your load (or you) in the middle, every carrier or customer
@@ -45,7 +45,7 @@ export function Ecosystem({ hub, nodes, idle, compact }: {
 
   return (
     <div className={"eco" + (compact ? " compact" : "")}>
-      <svg viewBox="0 0 900 590" role="img" aria-label={`Live map: ${nodes.length} contacts`}>
+      <svg viewBox="0 0 900 600" role="img" aria-label={`Live map: ${nodes.length} contacts`}>
         <ellipse className={"orbit" + (hub.busy ? " spin" : "")} cx={CX} cy={CY} rx={RINGS[0].rx} ry={RINGS[0].ry} />
         <ellipse className="orbit" cx={CX} cy={CY} rx={RINGS[1].rx} ry={RINGS[1].ry} />
 
@@ -55,9 +55,9 @@ export function Ecosystem({ hub, nodes, idle, compact }: {
 
         <circle className={"hub-halo" + (hub.done ? " done" : "")} cx={CX} cy={CY} r={HUB + 22} />
         <circle className={"hub-core" + (hub.done ? " done" : "")} cx={CX} cy={CY} r={HUB} />
-        <text className="hub-text" x={CX} y={CY - (hub.line2 ? 14 : 2)} fontSize={15}>{short(hub.line1, 15)}</text>
-        {hub.line2 && <text className="hub-text" x={CX} y={CY + 6} fontSize={15}>{short(hub.line2, 15)}</text>}
-        <text className="hub-sub" x={CX} y={CY + 30} style={hub.done ? { fill: "var(--good)" } : undefined}>{hub.sub}</text>
+        <text className="hub-text" x={CX} y={CY - (hub.line2 ? 15 : 2)} fontSize={16}>{short(hub.line1, 12)}</text>
+        {hub.line2 && <text className="hub-text" x={CX} y={CY + 7} fontSize={16}>{short(hub.line2, 12)}</text>}
+        <text className="hub-sub" x={CX} y={CY + 33} style={hub.done ? { fill: "var(--good-text)" } : undefined}>{hub.sub}</text>
 
         {placed.map((p) => (
           <g key={p.n.id} className={"node " + p.n.tone}>
@@ -73,12 +73,12 @@ export function Ecosystem({ hub, nodes, idle, compact }: {
                 <text className="badge-t" x={p.x + R - 5} y={p.y - R + 5}>✉</text>
               </>
             )}
-            <text className="name" x={p.x} y={p.y + R + 15}>{short(p.n.name)}</text>
-            <text className="stage" x={p.x} y={p.y + R + 29}>{short(p.n.label, 24)}</text>
+            <text className="name" x={p.x} y={p.y + R + 18}>{short(p.n.name)}</text>
+            <text className="stage" x={p.x} y={p.y + R + 34}>{short(p.n.label, 20)}</text>
           </g>
         ))}
 
-        {hidden > 0 && <text className="hub-sub" x={CX} y={578}>+ {hidden} more not shown</text>}
+        {hidden > 0 && <text className="hub-sub" x={CX} y={590}>+ {hidden} more not shown</text>}
       </svg>
       {nodes.length === 0 && <div className="eco-empty">{idle}</div>}
       <div className="eco-legend">

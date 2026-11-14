@@ -66,7 +66,7 @@ export function LoadEditor({ load, note, onClose, onSaved }: {
       onClose={onClose}
       foot={
         <>
-          {err && <span className="grow small" style={{ color: "var(--bad)", fontWeight: 700 }}>{err}</span>}
+          {err && <span className="grow small" style={{ color: "var(--bad-text)", fontWeight: 600 }}>{err}</span>}
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn" disabled={busy || !ready} onClick={() => save(false)}>Save</button>
           <button className="btn go" disabled={busy || !ready} onClick={() => save(true)}>Save &amp; find a truck →</button>

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { DropZone, useToast } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { api, useLive } from "@/lib/client";
 import { timeAgo } from "@/lib/format";
 import type { Carrier } from "@/lib/types";
@@ -57,11 +58,11 @@ export default function Carriers() {
           <div className="muted">Your truck list. When you look for a truck, I rank these by best fit for the load.</div>
         </div>
         <input className="input" style={{ maxWidth: 260 }} placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn" onClick={() => setAdding((a) => !a)}>＋ Add carrier</button>
+        <button className="btn" onClick={() => setAdding((a) => !a)}><Icon name="plus" size={17} stroke={2.5} />Add carrier</button>
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <DropZone icon="📊" title="Drop your carrier list here" sub="Excel (.xlsx) or CSV. Any column names work — name, MC, contact, phone, email, equipment, city, state, lanes." accept=".xlsx,.csv" onFile={onFile} />
+        <DropZone icon="table" title="Drop your carrier list here" sub="Excel (.xlsx) or CSV. Any column names work — name, MC, contact, phone, email, equipment, city, state, lanes." accept=".xlsx,.csv" onFile={onFile} />
       </div>
       {result && (
         <div className="hint good" style={{ marginBottom: 16 }}>

@@ -59,7 +59,7 @@ export function Launcher({ load, mode, onClose, onStarted }: {
       onClose={onClose}
       foot={
         <>
-          {err && <span className="grow small" style={{ color: "var(--bad)", fontWeight: 700 }}>{err}</span>}
+          {err && <span className="grow small" style={{ color: "var(--bad-text)", fontWeight: 600 }}>{err}</span>}
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn go big" disabled={busy || (!callable && !(email && emailable))} onClick={go}>
             {busy ? "Starting…" : `Start — call ${callable}${email && emailable ? `, email ${emailable}` : ""}`}
