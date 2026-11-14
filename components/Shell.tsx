@@ -43,7 +43,7 @@ export function Shell({ children, mode, offline }: { children: ReactNode; mode?:
             ? <span className="pill live" title="Calls are placed for real through ElevenLabs"><span className="dot" />Live calls</span>
             : <span className="pill demo" title="No phone rings. Add your ElevenLabs keys to go live."><span className="dot" />Practice mode — calls are simulated</span>
         )}
-        {mode && mode.data === "demo" && <span className="pill demo" title="Sample data in memory. Add Supabase keys to keep history.">Sample data</span>}
+        {mode && mode.data === "demo" && <span className="pill" title="Your data is saved in a file on this machine. Connect a database later to keep it permanently and share it.">Saved locally — no database yet</span>}
         <button className="icon-btn" onClick={flip} title="Switch light / dark" aria-label="Switch light or dark theme">{theme === "dark" ? "☀️" : "🌙"}</button>
       </header>
       <div className="page">{children}</div>

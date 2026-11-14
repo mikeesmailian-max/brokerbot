@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { Call, Load, TableMap, TableName } from "./types";
 import { seedDemo } from "./seed";
@@ -35,11 +37,56 @@ export interface Store {
 
 type Mem = { [K in TableName]: TableMap[K][] };
 
+// Until a database is connected, everything is kept in memory and mirrored to a
+// local file so your loads, carriers, customers and history survive a restart.
+const DATA_FILE = path.join(process.cwd(), ".data", "store.json");
+const EMPTY = (): Mem => ({ loads: [], carriers: [], customers: [], campaigns: [], calls: [], offers: [], events: [], documents: [] });
+
+function loadFromDisk(): Mem | null {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return null;
+    const mem = { ...EMPTY(), ...(JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) as Partial<Mem>) };
+    // Anything that was mid-call when the app stopped can't be resumed: close it out cleanly.
+    const at = new Date().toISOString();
+    for (const c of mem.calls) {
+      if (c.status === "ended" || c.status === "sent") continue;
+      Object.assign(c, { status: "ended", outcome: c.outcome ?? "cancelled", stage: c.outcome ? c.stage : "Stopped — the app restarted", ended_at: at });
+    }
+    for (const c of mem.campaigns) if (c.status === "running") Object.assign(c, { status: "stopped", ended_at: at });
+    for (const l of mem.loads) if (l.status === "searching") l.status = "open";
+    return mem;
+  } catch (e) {
+    console.error("Could not read saved data — starting from sample data.", e);
+    return null;
+  }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveSoon(mem: Mem) {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+      const tmp = DATA_FILE + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(mem));
+      fs.renameSync(tmp, DATA_FILE); // swap in one step so a crash never leaves a half-written file
+    } catch (e) {
+      console.error("Could not save data to disk (it is still held in memory).", e);
+    }
+  }, 400);
+}
+
 function memStore(): Store {
   const g = globalThis as unknown as { __fcMem?: Mem };
   if (!g.__fcMem) {
-    g.__fcMem = { loads: [], carriers: [], customers: [], campaigns: [], calls: [], offers: [], events: [], documents: [] };
-    seedDemo(g.__fcMem);
+    const saved = loadFromDisk();
+    if (saved) g.__fcMem = saved;
+    else {
+      g.__fcMem = EMPTY();
+      seedDemo(g.__fcMem);
+    }
+    saveSoon(g.__fcMem);
   }
   const mem = g.__fcMem;
   const match = (row: Record<string, unknown>, opts?: ListOpts) => {
@@ -67,18 +114,21 @@ function memStore(): Store {
     },
     async insert(table, rows) {
       (mem[table] as unknown[]).push(...rows.map((r) => ({ ...r })));
+      saveSoon(mem);
       return rows;
     },
     async update(table, id, patch) {
       const r = (mem[table] as { id: string }[]).find((x) => x.id === id);
       if (!r) return null;
       Object.assign(r, patch);
+      saveSoon(mem);
       return { ...r } as never;
     },
     async remove(table, id) {
       const arr = mem[table] as { id: string }[];
       const i = arr.findIndex((x) => x.id === id);
       if (i >= 0) arr.splice(i, 1);
+      saveSoon(mem);
     },
     async bookLoad({ loadId, carrierId, carrierName, rate, via }) {
       // Single-threaded JS: this check-and-set cannot interleave.
@@ -92,6 +142,7 @@ function memStore(): Store {
         covered_via: via,
         covered_at: new Date().toISOString(),
       });
+      saveSoon(mem);
       return { ...l };
     },
     async claimQueued(campaignId, n) {
@@ -105,6 +156,7 @@ function memStore(): Store {
         c.started_at = new Date().toISOString();
         c.stage = "Dialing…";
       }
+      saveSoon(mem);
       return picked.map((c) => ({ ...c }));
     },
   };

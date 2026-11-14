@@ -18,7 +18,9 @@ npm run dev
 ```
 
 Open http://localhost:3000. Pick a load → **Find a truck** → watch the map.
-Practice mode uses sample data and simulated calls, so nothing leaves your computer.
+Practice mode starts with sample data and simulated calls, so nothing leaves your computer.
+Until a database is connected, everything you add is saved to `.data/store.json` and survives
+restarts. Delete that file to start over with the sample data.
 
 ## What's on each screen
 
